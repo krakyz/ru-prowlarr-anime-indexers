@@ -1,0 +1,233 @@
+---
+id: rutracker-org-anime
+name: rutracker.org (anime)
+description: RuTracker is one of the most popular Russian torrent trackers.
+language: ru-RU
+type: semi-private
+encoding: windows-1251
+followredirect: true
+links:
+  - https://rutracker.org/
+  - https://rutracker.net/
+
+login:
+  method: form
+  path: forum/login.php
+  form: form[action="login.php"]
+  inputs:
+    login_username: "{{ .Config.username }}"
+    login_password: "{{ .Config.password }}"
+    login: Login
+    redirect: index.php
+  error:
+    - selector: "#login-form-full table.forumline .warnColor1"
+  test:
+    path: 'forum/index.php'
+    selector: '#logged-in-username'
+
+settings:
+  - name: username
+    type: text
+    label: Username
+
+  - name: password
+    type: password
+    label: Password
+
+  - name: sort
+    type: select
+    label: Sort requested from site
+    default: 10
+    options:
+      1: created
+      10: seeders
+      7: size
+      2: title
+
+  - name: type
+    type: select
+    label: Order requested from site
+    default: 2
+    options:
+      2: desc
+      1: asc
+
+search:
+  paths:
+    - path: forum/tracker.php
+
+  keywordsfilters:
+    - name: diacritics
+      args: replace
+    - name: re_replace
+      args: ["(?i)\\bS0*(\\d+)\\b", "сезон $1"]
+    - name: re_replace
+      args: ["(?i)\\bS0*(\\d+)E0*(\\d+)\\b", "сезон $1 серия $2"]
+
+  inputs:
+    f: '{{ join .Categories "," }}'
+    o: "{{ .Config.sort }}"
+    s: "{{ .Config.type }}"
+    nm: "{{ .Keywords }}"
+
+  rows:
+    selector: 'div#search-results tr:has(a[href^="viewtopic.php?t="])'
+
+  fields:
+    category:
+      selector: a[href^="tracker.php?f="]
+      attribute: href
+      filters:
+        - name: querystring
+          args: f
+
+    title:
+      selector: a[href^="viewtopic.php?t="]
+      filters:
+        - name: replace
+          args: [ "\u00A0", " " ]
+
+        # 1. МАСТЕР-ФИЛЬТР (ТВ-2 захватывается в группу season)
+        - name: re_replace
+          args:
+            - '^(?<rus>[^/\[]+?)(?:\s*\((?:ТВ|TV)-(?<season>\d+)\))?\s*/\s*(?<romaji>[^/\[(]+)[^\[]*\[(?<type>[^\]]+)\]\s*(?:\[(?<eps>\d+(?:-\d+)?(?:[^\]]+)?)\])?.*?\[(?<year>\d{4})(?:[^\]]*?(?<source>WEB-DLRip|WEB-DL|BDRemux|BDRip|HDTVRip|HDRemux|HDTV|TVRip|DVD))?[^\]]*\]\s*(?<res>\[\d+p\])?.*$'
+            - '${romaji} S0${season} E--${eps} (${year}) RUS ${source} ${res}'
+
+        # 2. Очистка пустых маркеров S0
+        - name: re_replace
+          args: [ '\s+S0\s+', ' ' ]
+
+        # 3. Фикс двузначных сезонов (S012 -> S12)
+        - name: re_replace
+          args: [ 'S0(\d{2,})', 'S$1' ]
+
+        # 4. ЖЕСТКИЙ СРЕЗ МУСОРА ОТ ЭПИЗОДОВ ("E--1-12 из 12+" -> "E--1-12")
+        - name: re_replace
+          args: [ 'E--(\d+(?:-\d+)?).*?(?=\s+\()', 'E--$1' ]
+
+        # 5. Добавляем 'E' к диапазонам: E--1-13 -> E01-13
+        - name: re_replace
+          args: [ 'E--(\d+)-(\d+)', 'E$1-$2' ]
+
+        # 6. Добавляем 'E' к одиночным пакам: E--12 -> E01-12
+        - name: re_replace
+          args: [ 'E--(\d+)', 'E01-$1' ]
+
+        # 7. Удаление пустых E--
+        - name: re_replace
+          args: [ '\s*E--\s*', ' ' ]
+
+        # 8. БЕЗОПАСНАЯ СТРАХОВКА: Если нет буквы S, но есть E01-12, добавляем S01
+        - name: re_replace
+          args: [ '^(?!.*S\d+)(.*?)\s+(E\d+)', '$1 S01$2' ]
+
+        # 9. Склеиваем сезон и эпизод: S02 E01-12 -> S02E01-12
+        - name: re_replace
+          args: [ '(S\d+)\s+(E\d+)', '$1$2' ]
+
+        # 10. Финальная зачистка
+        - name: re_replace
+          args: [ '\s{2,}', ' ' ]
+
+        - name: trim
+
+    details:
+      selector: a[href^="viewtopic.php?t="]
+      attribute: href
+
+    download:
+      selector: a.tr-dl
+      attribute: href
+
+    size:
+      selector: a.tr-dl
+
+    seeders:
+      selector: b.seedmed
+
+    leechers:
+      selector: td.leechmed
+
+    grabs:
+      selector: td.leechmed+td
+
+    date:
+      selector: td.leechmed+td+td p:first-child
+      filters:
+        # Исправлен парсинг дат
+        - name: replace
+          args: ["Янв", "01"]
+        - name: replace
+          args: ["Фев", "02"]
+        - name: replace
+          args: ["Мар", "03"]
+        - name: replace
+          args: ["Апр", "04"]
+        - name: replace
+          args: ["Май", "05"]
+        - name: replace
+          args: ["Июн", "06"]
+        - name: replace
+          args: ["Июл", "07"]
+        - name: replace
+          args: ["Авг", "08"]
+        - name: replace
+          args: ["Сен", "09"]
+        - name: replace
+          args: ["Окт", "10"]
+        - name: replace
+          args: ["Ноя", "11"]
+        - name: replace
+          args: ["Дек", "12"]
+        - name: replace
+          args: ["янв", "01"]
+        - name: replace
+          args: ["фев", "02"]
+        - name: replace
+          args: ["мар", "03"]
+        - name: replace
+          args: ["апр", "04"]
+        - name: replace
+          args: ["май", "05"]
+        - name: replace
+          args: ["июн", "06"]
+        - name: replace
+          args: ["июл", "07"]
+        - name: replace
+          args: ["авг", "08"]
+        - name: replace
+          args: ["сен", "09"]
+        - name: replace
+          args: ["окт", "10"]
+        - name: replace
+          args: ["ноя", "11"]
+        - name: replace
+          args: ["дек", "12"]
+        - name: dateparse
+          args: d-MM-yy
+
+downloadvolumefactor:
+  text: 1
+
+uploadvolumefactor:
+  text: 1
+
+caps:
+  categorymappings:
+    - { id: 33, cat: TV/Anime, desc: "Аниме" }
+    - { id: 1106, cat: TV/Anime, desc: "|- Онгоинги (HD Video)" }
+    - { id: 1105, cat: TV/Anime, desc: "|- Аниме (HD Video)" }
+    - { id: 599, cat: TV/Anime, desc: "|- Аниме (DVD)" }
+    - { id: 1389, cat: TV/Anime, desc: "|- Аниме (основной подраздел)" }
+    - { id: 1391, cat: TV/Anime, desc: "|- Аниме (плеерный подраздел)" }
+    - { id: 2491, cat: TV/Anime, desc: "|- Аниме (QC подраздел)" }
+    - { id: 2544, cat: TV/Anime, desc: "|- Ван-Пис" }
+    - { id: 1642, cat: TV/Anime, desc: "|- Гандам" }
+    - { id: 1390, cat: TV/Anime, desc: "|- Наруто" }
+    - { id: 404, cat: TV/Anime, desc: "|- Покемоны" }
+    - { id: 893, cat: TV/Anime, desc: "|- Японские мультфильмы" }
+
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
