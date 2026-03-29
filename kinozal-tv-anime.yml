@@ -1,0 +1,200 @@
+---
+id: kinozal-tv-anime
+name: Kinozal (Anime)
+description: "Kinozal is a RUSSIAN Semi-Private Torrent Tracker. This indexer is optimized for Anime and Sonarr."
+language: ru-RU
+type: semi-private
+encoding: windows-1251
+links:
+  - https://kinozal.tv/
+  - https://kinozal.guru/
+legacylinks:
+  - https://kinozal-tv.appspot.com/
+  - http://kinozal.tv/
+  - https://kinozal-guru.appspot.com/
+
+caps:
+  categorymappings:
+    - {id: 20, cat: TV/Anime, desc: "Cartoons - Anime"}
+  modes:
+    search: [q]
+    tv-search: [q]
+
+settings:
+  - name: username
+    type: text
+    label: Username
+  - name: password
+    type: password
+    label: Password
+  - name: freeleech
+    type: checkbox
+    label: Search freeleech only
+    default: false
+
+login:
+  path: takelogin.php
+  method: post
+  inputs:
+    username: "{{ .Config.username }}"
+    password: "{{ .Config.password }}"
+  error:
+    - selector: div.bx1:has(div.red)
+      message:
+        selector: div.bx1 div.red
+  test:
+    path: my.php
+    selector: a[href*="logout.php?hash4u="]
+
+search:
+  paths:
+    - path: browse.php
+      followredirect: true
+  keywordsfilters:
+    - name: re_replace # Strip S01 to allow broad search
+      args: ["(?i)\\bS0*(\\d+)\\b", ""]
+    - name: re_replace # Strip S01E01 to allow broad search
+      args: ["(?i)\\bS0*(\\d+)E0*(\\d+)\\b", ""]
+  inputs:
+    c: 20
+    s: "{{ .Keywords }}"
+    g: 0
+    v: 0
+    d: 0
+    w: "{{ if .Config.freeleech }}11{{ else }}0{{ end }}"
+    t: 0
+    f: 0
+
+  rows:
+    selector: table > tbody > tr:has(td.bt)
+  fields:
+    filters:
+      # 1. МАСТЕР-ФИЛЬТР (С поддержкой диапазонов лет, например 2025-2026)
+      - name: re_replace
+        args:
+          - '^(?<rus>[^/]+?)\s*(?:\(\s*(?:(?<season>\d+)\s*\u0441\u0435\u0437\u043E\u043D)?(?:[^)]*?[\u0427\u0447]\u0430\u0441\u0442\u044C\s*(?<part>\d+(?:-\d+)?))?(?:[^)]*?(?<epFrom>\d+)(?:-(?<epTo>\d+))?\s*\u0441\u0435\u0440\u0438)?[^)]*\)\s*)?/\s*(?<romaji>[^/]+?)\s*/\s*(?<year>\d{4})(?:-\d{4})?\s*/\s*(?<audioFeat>.*?)\s*/\s*(?<quality>[^/()]+?)(?:\s*\((?<res>\d+p|4K|2K|8K|\d{3,4}[pi])\))?\s*$'
+          - '${romaji} (${year}) [PART:${part}] S0${season}E--${epFrom}-${epTo} [${quality} ${res}] -Kinozal (${rus} / ${audioFeat})'
+
+      # 2. Очистка несмаченных групп (если сезонов/серий не было)
+      - name: re_replace
+        args: [ '\[PART:\]', '' ]
+      - name: re_replace
+        args: [ '\s*S0E---\s*', ' ' ] # И сезон, и серии отсутствуют (Скарлет) -> стираем в пробел
+      - name: re_replace
+        args: [ '\bS0E--', 'E--' ] # Сезон отсутствует, но серии есть -> оставляем E-- для ТВ-страховки S01
+      - name: re_replace
+        args: [ 'S0(\d{2,})', 'S$1' ] # Фикс S012 -> S12
+
+      # 3. Фикс пустого epTo (когда залита только 1 серия: E--1- -> E--1)
+      - name: re_replace
+        args: [ 'E--(\d+)-\s+', 'E--$1 ' ]
+
+      # 4. Нормализация эпизодов (добиваем нули)
+      - name: re_replace
+        args: [ 'E--', 'E' ]
+      - name: re_replace
+        args: [ 'E(\d)(?=-|\b|\s)', 'E0$1' ] # E1-12 -> E01-12
+      - name: re_replace
+        args: [ '(?<=E\d{2}-)(\d)\b', '0$1' ] # E01-2 -> E01-02
+
+      # 5. Обработка Parts (Сплит-куров)
+      - name: re_replace
+        args: [ '\s*\[PART:\d+-\d+\]', '' ] # Уничтожаем объединенные Part 1-2
+      - name: re_replace
+        args: [ '\[PART:(\d+)\]', ' - Part $1' ]
+      - name: re_replace
+        args: [ '(?i)(Part\s*\d+)(?:\s*-\s*\1|\s+\1)', '$1' ] # Удаление дублей
+      - name: re_replace
+        args: [ '(?i)\s*-\s*Part\s*1\b', '' ] # Скрываем Part 1 для Sonarr
+
+      # 6. Fallback-страховка для сезонов
+      # OVA / Movie / Specials -> S00
+      - name: re_replace
+        args: [ '^(?i)(?!.*S\d+)(?!.*?(?:TV|\u0422\u0412)\s*\+)(?=.*?(?:OVA|OAD|Special|\u0421\u043F\u0435\u0448\u043B|Movie|\u0424\u0438\u043B\u044C\u043C|SP\b))(.+?)\s+(E\d+)', '$1 S00$2' ]
+      # TV -> S01
+      - name: re_replace
+        args: [ '^(?!.*S\d+)(.+?)\s+(E\d+)', '$1 S01$2' ]
+
+      # 7. БЕЗЖАЛОСТНАЯ ЗАЧИСТКА КИРИЛЛИЦЫ В ХВОСТЕ
+      - name: re_replace
+        args: [ '\p{IsCyrillic}+', '' ]
+
+      # 8. Уборка мусорной пунктуации из хвоста после зачистки кириллицы
+      - name: re_replace
+        args: [ '\(\s*[/,-]+\s*', '(' ]
+      - name: re_replace
+        args: [ '\s*[/,-]+\s*\)', ')' ]
+      - name: re_replace
+        args: [ '\s+[/,-]+\s+', ' ' ]
+      - name: re_replace
+        args: [ '\(\s*\)', '' ] # Стираем пустые скобки
+      - name: re_replace
+        args: [ '\[\s+\]', '' ]
+      - name: re_replace
+        args: [ '\s{2,}', ' ' ]
+
+      - name: trim
+
+    details:
+      selector: td.nam a[href^="/details.php?"]
+      attribute: href
+    category:
+      selector: td.bt img
+      attribute: onclick
+      filters:
+        - name: re_replace
+          args: ["[^\\d+]", ""]
+    download:
+      selector: td.nam a[href^="/details.php?"]
+      attribute: href
+      filters:
+        - name: replace
+          args: ["details", "download"]
+    size:
+      selector: td:nth-child(4)
+      filters:
+        # Unicode-реплейс кириллицы (ТБ, ГБ, МБ, КБ)
+        - name: re_replace
+          args: ["\u0422\u0411", "TB"]
+        - name: re_replace
+          args: ["\u0413\u0411", "GB"]
+        - name: re_replace
+          args: ["\u041c\u0411", "MB"]
+        - name: re_replace
+          args: ["\u041a\u0411", "KB"]
+    seeders:
+      selector: td:nth-child(5)
+    leechers:
+      selector: td:nth-child(6)
+    date_day:
+      selector: td:nth-child(7):not(:contains("."))
+      optional: true
+      filters:
+        # Unicode-реплейс кириллицы в датах
+        - name: re_replace
+          args: [" \u0432", ""]
+        - name: re_replace
+          args: ["\u0441\u0435\u0439\u0447\u0430\u0441", "now"]
+        - name: re_replace
+          args: ["\u0441\u0435\u0433\u043e\u0434\u043d\u044f", "Today"]
+        - name: re_replace
+          args: ["\u0432\u0447\u0435\u0440\u0430", "Yesterday"]
+    date_year:
+      selector: td:nth-child(7):contains(".")
+      optional: true
+      filters:
+        - name: re_replace
+          args: [" \u0432", ""]
+        - name: dateparse
+          args: "dd.MM.yyyy HH:mm"
+    date:
+      text: "{{ if or .Result.date_day .Result.date_year }}{{ or .Result.date_day .Result.date_year }}{{ else }}now{{ end }}"
+    downloadvolumefactor:
+      case:
+        a.r1: 0 # gold
+        a.r2: 0.5 # silver
+        "*": 1
+    uploadvolumefactor:
+      text: 1
+    minimumratio:
+      text: 1.0
