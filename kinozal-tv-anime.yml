@@ -16,6 +16,7 @@ legacylinks:
 caps:
   categorymappings:
     - {id: 20, cat: TV/Anime, desc: "Cartoons - Anime"}
+    - {id: 20, cat: TV/Season, desc: "Anime Seasons"}
 
   modes:
     search: [q]
